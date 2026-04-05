@@ -1,0 +1,171 @@
+<svg width="960" height="580" viewBox="0 0 960 580" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="arr-gray" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#64748B"/>
+    </marker>
+    <marker id="arr-teal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#0D9488"/>
+    </marker>
+    <marker id="arr-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#7C3AED"/>
+    </marker>
+    <marker id="arr-amber" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#D97706"/>
+    </marker>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#00000018"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="580" rx="14" fill="#EEF2F7"/>
+
+  <!-- Title -->
+  <text x="480" y="38" text-anchor="middle" font-size="19" font-weight="700" fill="#0F172A" letter-spacing="-0.3">QAChatBox — System Architecture</text>
+
+  <!-- ═══════════ CLIENTS ═══════════ -->
+  <rect x="18" y="60" width="170" height="118" rx="10" fill="white" stroke="#BAE6FD" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="18" y="60" width="170" height="28" rx="10" fill="#BAE6FD"/>
+  <rect x="18" y="74" width="170" height="14" fill="#BAE6FD"/>
+  <text x="103" y="78" text-anchor="middle" font-size="11" font-weight="700" fill="#0369A1">Clients</text>
+
+  <!-- UI node -->
+  <rect x="28" y="98" width="150" height="34" rx="6" fill="#F0F9FF" stroke="#7DD3FC" stroke-width="1"/>
+  <text x="103" y="111" text-anchor="middle" font-size="10" font-weight="600" fill="#0C4A6E">Streamlit UI</text>
+  <text x="103" y="125" text-anchor="middle" font-size="9" fill="#0369A1">Streamlit · :8501</text>
+
+  <!-- Slack node -->
+  <rect x="28" y="140" width="150" height="34" rx="6" fill="#F0F9FF" stroke="#7DD3FC" stroke-width="1"/>
+  <text x="103" y="153" text-anchor="middle" font-size="10" font-weight="600" fill="#0C4A6E">Slack Bot</text>
+  <text x="103" y="167" text-anchor="middle" font-size="9" fill="#0369A1">Slack Bolt SDK</text>
+
+  <!-- ═══════════ FASTAPI ═══════════ -->
+  <rect x="358" y="60" width="244" height="118" rx="10" fill="white" stroke="#99F6E4" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="358" y="60" width="244" height="28" rx="10" fill="#99F6E4"/>
+  <rect x="358" y="74" width="244" height="14" fill="#99F6E4"/>
+  <text x="480" y="78" text-anchor="middle" font-size="11" font-weight="700" fill="#0F766E">FastAPI  :8000</text>
+
+  <!-- Gateway node -->
+  <rect x="368" y="98" width="224" height="34" rx="6" fill="#F0FDFA" stroke="#5EEAD4" stroke-width="1"/>
+  <text x="480" y="111" text-anchor="middle" font-size="10" font-weight="600" fill="#134E4A">Gateway</text>
+  <text x="480" y="125" text-anchor="middle" font-size="9" fill="#0F766E">JWT HS256  ·  Rate Limiter</text>
+
+  <!-- Ingest node -->
+  <rect x="368" y="140" width="224" height="34" rx="6" fill="#F0FDFA" stroke="#5EEAD4" stroke-width="1"/>
+  <text x="480" y="153" text-anchor="middle" font-size="10" font-weight="600" fill="#134E4A">POST /ingest</text>
+  <text x="480" y="167" text-anchor="middle" font-size="9" fill="#0F766E">Admin only</text>
+
+  <!-- ═══════════ ARROWS: CLIENTS → FASTAPI ═══════════ -->
+  <line x1="188" y1="115" x2="368" y2="115" stroke="#64748B" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-gray)"/>
+  <rect x="232" y="104" width="66" height="15" rx="3" fill="#EEF2F7"/>
+  <text x="265" y="115" text-anchor="middle" font-size="8" fill="#475569">HTTP / SSE</text>
+
+  <line x1="188" y1="157" x2="368" y2="157" stroke="#64748B" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-gray)"/>
+  <rect x="243" y="146" width="40" height="15" rx="3" fill="#EEF2F7"/>
+  <text x="263" y="157" text-anchor="middle" font-size="8" fill="#475569">HTTP</text>
+
+  <!-- ═══════════ LANGGRAPH AGENT ═══════════ -->
+  <rect x="18" y="224" width="924" height="204" rx="10" fill="white" stroke="#DDD6FE" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="18" y="224" width="924" height="28" rx="10" fill="#EDE9FE"/>
+  <rect x="18" y="238" width="924" height="14" fill="#EDE9FE"/>
+  <text x="480" y="242" text-anchor="middle" font-size="11" font-weight="700" fill="#5B21B6">LangGraph Agent</text>
+
+  <!-- Router node -->
+  <rect x="390" y="260" width="180" height="42" rx="7" fill="#FAF5FF" stroke="#A78BFA" stroke-width="2"/>
+  <text x="480" y="277" text-anchor="middle" font-size="11" font-weight="700" fill="#5B21B6">route_question</text>
+  <text x="480" y="293" text-anchor="middle" font-size="9" fill="#7C3AED">Claude Haiku</text>
+
+  <!-- RAG node -->
+  <rect x="52" y="330" width="180" height="42" rx="7" fill="#FFF7ED" stroke="#FDBA74" stroke-width="1.5"/>
+  <text x="142" y="347" text-anchor="middle" font-size="11" font-weight="700" fill="#C2410C">rag_node</text>
+  <text x="142" y="363" text-anchor="middle" font-size="9" fill="#EA580C">ChromaDB</text>
+
+  <!-- SQL node -->
+  <rect x="710" y="330" width="180" height="42" rx="7" fill="#FFF7ED" stroke="#FDBA74" stroke-width="1.5"/>
+  <text x="800" y="347" text-anchor="middle" font-size="11" font-weight="700" fill="#C2410C">sql_node</text>
+  <text x="800" y="363" text-anchor="middle" font-size="9" fill="#EA580C">Claude Haiku  ·  PostgreSQL</text>
+
+  <!-- Synthesize node -->
+  <rect x="390" y="386" width="180" height="34" rx="7" fill="#F0FDF4" stroke="#86EFAC" stroke-width="1.5"/>
+  <text x="480" y="399" text-anchor="middle" font-size="11" font-weight="700" fill="#166534">synthesize</text>
+  <text x="480" y="413" text-anchor="middle" font-size="9" fill="#15803D">Claude Sonnet</text>
+
+  <!-- Inner: Router → RAG -->
+  <line x1="420" y1="302" x2="210" y2="330" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <rect x="280" y="304" width="26" height="15" rx="3" fill="#FAF5FF"/>
+  <text x="293" y="315" text-anchor="middle" font-size="9" font-weight="600" fill="#6D28D9">rag</text>
+
+  <!-- Inner: Router → SQL -->
+  <line x1="540" y1="302" x2="742" y2="330" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+  <rect x="636" y="304" width="24" height="15" rx="3" fill="#FAF5FF"/>
+  <text x="648" y="315" text-anchor="middle" font-size="9" font-weight="600" fill="#6D28D9">sql</text>
+
+  <!-- Inner: RAG → Synthesize -->
+  <line x1="200" y1="372" x2="420" y2="400" stroke="#64748B" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+
+  <!-- Inner: SQL → Synthesize -->
+  <line x1="742" y1="372" x2="540" y2="400" stroke="#64748B" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+
+  <!-- FastAPI Gateway → Agent -->
+  <line x1="480" y1="178" x2="480" y2="224" stroke="#0D9488" stroke-width="2" marker-end="url(#arr-teal)"/>
+
+  <!-- ═══════════ STORAGE: ChromaDB ═══════════ -->
+  <rect x="18" y="474" width="200" height="64" rx="10" fill="white" stroke="#67E8F9" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="18" y="474" width="200" height="24" rx="10" fill="#CFFAFE"/>
+  <rect x="18" y="486" width="200" height="12" fill="#CFFAFE"/>
+  <text x="118" y="490" text-anchor="middle" font-size="10" font-weight="700" fill="#0E7490">ChromaDB</text>
+  <text x="118" y="516" text-anchor="middle" font-size="9" fill="#0891B2">all-MiniLM-L6-v2</text>
+  <text x="118" y="530" text-anchor="middle" font-size="9" fill="#0891B2">Vector Store</text>
+
+  <!-- ═══════════ STORAGE: PostgreSQL ═══════════ -->
+  <rect x="380" y="474" width="200" height="64" rx="10" fill="white" stroke="#93C5FD" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="380" y="474" width="200" height="24" rx="10" fill="#DBEAFE"/>
+  <rect x="380" y="486" width="200" height="12" fill="#DBEAFE"/>
+  <text x="480" y="490" text-anchor="middle" font-size="10" font-weight="700" fill="#1E40AF">PostgreSQL</text>
+  <text x="480" y="516" text-anchor="middle" font-size="9" fill="#1D4ED8">asyncpg  ·  Docker</text>
+  <text x="480" y="530" text-anchor="middle" font-size="9" fill="#1D4ED8">Relational DB</text>
+
+  <!-- ═══════════ QUALITY PIPELINE ═══════════ -->
+  <rect x="742" y="474" width="200" height="64" rx="10" fill="white" stroke="#FCA5A5" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="742" y="474" width="200" height="24" rx="10" fill="#FEE2E2"/>
+  <rect x="742" y="486" width="200" height="12" fill="#FEE2E2"/>
+  <text x="842" y="490" text-anchor="middle" font-size="10" font-weight="700" fill="#991B1B">Quality Pipeline</text>
+  <text x="842" y="516" text-anchor="middle" font-size="9" fill="#7F1D1D">LLM Judge  ·  Claude Haiku</text>
+  <text x="842" y="530" text-anchor="middle" font-size="9" fill="#7F1D1D">RAGAS</text>
+
+  <!-- ═══════════ ARROWS: AGENT → STORAGE ═══════════ -->
+  <!-- RAG → ChromaDB -->
+  <line x1="142" y1="372" x2="118" y2="474" stroke="#0D9488" stroke-width="1.5" marker-end="url(#arr-teal)"/>
+  <rect x="62" y="418" width="76" height="15" rx="3" fill="#EEF2F7"/>
+  <text x="100" y="429" text-anchor="middle" font-size="8" fill="#0F766E">cosine search</text>
+
+  <!-- SQL → PostgreSQL -->
+  <line x1="770" y1="372" x2="548" y2="474" stroke="#64748B" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+  <rect x="686" y="412" width="50" height="15" rx="3" fill="#EEF2F7"/>
+  <text x="711" y="423" text-anchor="middle" font-size="8" fill="#475569">execute</text>
+
+  <!-- Synthesize → PostgreSQL -->
+  <line x1="480" y1="420" x2="480" y2="474" stroke="#64748B" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+  <rect x="455" y="440" width="32" height="15" rx="3" fill="#EEF2F7"/>
+  <text x="471" y="451" text-anchor="middle" font-size="8" fill="#475569">save</text>
+
+  <!-- Synthesize → Quality (fire and forget) -->
+  <line x1="555" y1="403" x2="778" y2="474" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-amber)"/>
+  <rect x="626" y="428" width="78" height="15" rx="3" fill="#EEF2F7"/>
+  <text x="665" y="439" text-anchor="middle" font-size="8" fill="#B45309">fire and forget</text>
+
+  <!-- Ingest → ChromaDB -->
+  <polyline points="358,157 30,157 30,474" fill="none" stroke="#0D9488" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-teal)"/>
+  <rect x="34" y="306" width="60" height="15" rx="3" fill="#EEF2F7"/>
+  <text x="64" y="317" text-anchor="middle" font-size="8" fill="#0F766E">embed+upsert</text>
+
+  <!-- ═══════════ LEGEND ═══════════ -->
+  <rect x="730" y="62" width="212" height="88" rx="8" fill="white" stroke="#E2E8F0" stroke-width="1" filter="url(#shadow)"/>
+  <text x="836" y="82" text-anchor="middle" font-size="10" font-weight="700" fill="#334155">Legend</text>
+  <line x1="748" y1="100" x2="788" y2="100" stroke="#64748B" stroke-width="1.5" marker-end="url(#arr-gray)"/>
+  <text x="798" y="104" font-size="9" fill="#475569">Query / Data flow</text>
+  <line x1="748" y1="118" x2="788" y2="118" stroke="#0D9488" stroke-width="1.5" marker-end="url(#arr-teal)"/>
+  <text x="798" y="122" font-size="9" fill="#475569">Ingestion / Vector</text>
+  <line x1="748" y1="136" x2="788" y2="136" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-amber)"/>
+  <text x="798" y="140" font-size="9" fill="#475569">Async / Background</text>
+</svg>

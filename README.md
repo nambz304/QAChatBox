@@ -18,51 +18,7 @@ Ask questions about HR policies or employee data — in Vietnamese or English �
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph Clients["Clients"]
-        UI["🖥️ Streamlit UI\n:8501"]
-        SL["💬 Slack Bot\nSocket Mode"]
-    end
-
-    subgraph API["FastAPI  :8000"]
-        direction TB
-        GW["Rate Limiter · JWT Auth\nInput Validation"]
-        INGEST["POST /ingest\nAdmin only"]
-    end
-
-    subgraph Agent["LangGraph Agent"]
-        direction LR
-        R["route_question\nHaiku · 1 token"]
-        R -->|rag| RAG["rag_node\nChromaDB search"]
-        R -->|sql| SQL["sql_node\nHaiku → SELECT"]
-        RAG --> S["synthesize\nSonnet · streaming"]
-        SQL --> S
-    end
-
-    subgraph Storage["Storage"]
-        VEC[("ChromaDB\nVector Store")]
-        PG[("PostgreSQL\nEmployees · History")]
-    end
-
-    subgraph Quality["Quality Pipeline"]
-        direction LR
-        J["LLM Judge\nHaiku · async"]
-        RG["RAGAS\non-demand"]
-    end
-
-    UI -->|HTTP / SSE| API
-    SL -->|HTTP| API
-    GW --> Agent
-    INGEST -->|embed + upsert| VEC
-
-    RAG -->|cosine search| VEC
-    SQL -->|execute| PG
-    S -->|save| PG
-    S -->|fire & forget| J
-    J -->|scores| PG
-    RG -->|reads| PG
-```
+![System Architecture](docs/images/architecture.svg)
 
 ---
 
