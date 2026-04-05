@@ -1,200 +1,213 @@
-# Internal Knowledge Base Chatbot
+<div align="center">
 
-AI-powered company assistant built with **Claude** (Anthropic) + **LangGraph** + **ChromaDB** + **PostgreSQL**.  
-Employees can ask questions in natural language via **web UI** or **Slack** — the agent automatically routes to the right data source.
+# QAChatBox
+
+**AI-powered internal knowledge base for companies.**  
+Ask questions about HR policies or employee data — in Vietnamese or English — via web UI or Slack.
+
+[![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi)](https://fastapi.tiangolo.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-0.2-orange)](https://github.com/langchain-ai/langgraph)
+[![Claude](https://img.shields.io/badge/Claude-Sonnet%204.6-blueviolet)](https://anthropic.com)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+![Architecture](architecture.png)
+
+</div>
 
 ---
 
-## What it does
+## Overview
 
-| Question type | Data source | Example |
+QAChatBox is a production-ready RAG chatbot that automatically routes each question to the right data source:
+
+| Question | Routes to | Example |
 |---|---|---|
-| Policy / HR docs | ChromaDB (RAG) | "Chính sách nghỉ phép là gì?" |
-| Employee data | PostgreSQL (SQL gen) | "Average salary in Engineering?" |
+| HR policies, leave rules, onboarding | ChromaDB (semantic search) | *"Chính sách nghỉ thai sản là gì?"* |
+| Employee data, headcount, salaries | PostgreSQL (LLM-generated SQL) | *"Average salary in Engineering?"* |
+
+Every response is automatically evaluated by an LLM judge and tracked for quality via RAGAS metrics.
 
 ---
 
-## Tech stack
+## Features
+
+- **Bilingual** — responds in Vietnamese or English based on the user's language
+- **Streaming UI** — token-by-token streaming via Server-Sent Events
+- **Role-based access** — `admin` can upload documents and view quality metrics; `employee` is read-only
+- **Slack bot** — Socket Mode, no public URL needed
+- **Quality monitoring** — LLM-as-judge (automatic, per response) + RAGAS (on-demand, batch)
+- **User feedback** — thumbs up/down on every assistant message
+- **DB ↔ ChromaDB sync** — detect and auto-repair data drift between PostgreSQL and ChromaDB
+
+---
+
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| LLM | Claude Haiku 4.5 (routing) + Claude Sonnet 4.6 (synthesis) |
-| Agent | LangGraph `StateGraph` — 3 nodes: `route_question → rag/sql_node → synthesize` |
-| Vector DB | ChromaDB + `paraphrase-multilingual-MiniLM-L12-v2` (local, no extra API key) |
+| LLM | Claude Haiku 4.5 · routing & judging · Claude Sonnet 4.6 · synthesis & RAGAS |
+| Agent | LangGraph `StateGraph` |
+| Vector DB | ChromaDB + `paraphrase-multilingual-MiniLM-L12-v2` (local embeddings) |
 | Relational DB | PostgreSQL |
-| API | FastAPI — SSE streaming + blocking endpoints |
-| Web UI | Streamlit — login, chat, admin panel, thumbs up/down feedback |
-| Slack | Slack Bolt SDK (Socket Mode — no public URL needed) |
-| Auth | JWT (HS256) — role-based: `admin` / `employee` |
-| Quality | RAGAS evaluation + LLM-as-judge (Haiku, fire-and-forget) |
+| API | FastAPI (async, SSE streaming, rate-limited) |
+| Web UI | Streamlit |
+| Auth | JWT HS256, role-based |
+| Slack | Slack Bolt SDK (Socket Mode) |
 | Deploy | Docker Compose |
 
 ---
 
-## Quick start
+## Quick Start
 
-### Option A — Docker (recommended)
+### Docker (recommended)
 
 ```bash
-cp .env.example .env        # set ANTHROPIC_API_KEY
+cp .env.example .env          # add your ANTHROPIC_API_KEY
 docker-compose up --build
 ```
 
-- Web UI → http://localhost:8501
-- API docs → http://localhost:8000/docs
-- Default login: **admin** / **admin123**
+| Service | URL |
+|---|---|
+| Web UI | http://localhost:8501 |
+| API docs | http://localhost:8000/docs |
 
-### Option B — Local dev (Makefile)
+Default credentials: `admin` / `admin123` · `employee` / `employee123`
+
+### Local Development
+
+Requires **Python 3.11** and **Docker** (for PostgreSQL).
 
 ```bash
-make install      # create .venv (Python 3.11) + install deps
-make db           # start PostgreSQL container
-make seed         # seed SQLite schema + index policy docs into ChromaDB
-make dev          # FastAPI :8000 + Streamlit :8501 (both with auto-reload)
+make install    # create .venv + install all dependencies
+make db         # start PostgreSQL container
+make seed       # seed DB schema + index policy docs into ChromaDB
+make dev        # FastAPI :8000 + Streamlit :8501 with auto-reload
 ```
 
 ---
 
-## All make commands
-
-```
-make install        Tạo venv (Python 3.11) và cài toàn bộ dependencies
-make seed           Seed SQLite + index ChromaDB (idempotent)
-make db             Khởi động postgres container
-make db-stop        Dừng postgres container
-
-make dev            Chạy API :8000 + UI :8501 (local, auto-reload)
-make api            Chỉ FastAPI :8000
-make ui             Chỉ Streamlit :8501
-make slack          Chỉ Slack bot
-
-make sync           Detect desync PostgreSQL ↔ ChromaDB (dry-run)
-make sync-fix       Auto-fix desync (không cần file gốc)
-make sync-reindex   Xóa và index lại policy files từ disk
-make chroma-inspect Xem toàn bộ chunks trong ChromaDB
-
-make test           Offline tests (không cần API key)
-make test-all       Toàn bộ tests (cần ANTHROPIC_API_KEY)
-
-make up             docker-compose up (không rebuild)
-make build          docker-compose up --build
-make down           Dừng và xóa containers
-make logs           Xem logs app container realtime
-
-make add pkg=<name> Thêm package vào venv + requirements.txt
-make clean          Xóa venv và cache
-```
-
----
-
-## Agent flow
+## Agent Architecture
 
 ```
 User query
     │
     ▼
-route_question        ← Haiku, max_tokens=64
-    │                   Output: "rag" | "sql"
-    ├─► rag_node      ← ChromaDB semantic search (cosine < 0.7)
-    └─► sql_node      ← Haiku generates SELECT, runs on PostgreSQL
+route_question          Claude Haiku · classifies into "rag" or "sql"
+    │
+    ├──► rag_node       ChromaDB semantic search · cosine similarity
+    │
+    └──► sql_node       Haiku generates SELECT · executes on PostgreSQL
     │
     ▼
-synthesize            ← Sonnet, up to 1024 tokens
-    │                   Responds in same language as user (VI / EN)
+synthesize              Claude Sonnet · conversational answer + citations
+    │
     ▼
-Answer + citations
+[background] judge      Haiku evaluates helpfulness / factual / hallucination
 ```
 
 ---
 
-## API endpoints
+## API Reference
 
-| Method | Path | Auth | Description |
+Full interactive docs at `/docs` (Swagger UI).
+
+| Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/login` | — | Login → JWT |
-| POST | `/chat` | user | Blocking (Slack) |
-| POST | `/chat/stream` | user | SSE streaming (UI) |
-| POST | `/feedback` | user | Thumbs up/down (rating ±1) |
-| GET | `/history/{session_id}` | user | Conversation history |
-| DELETE | `/history/{session_id}` | user | Clear session |
-| GET | `/sessions` | user | List conversations |
-| POST | `/ingest` | admin | Upload & index document |
-| GET | `/documents` | user | List indexed documents |
-| DELETE | `/documents/{id}` | admin | Delete document |
-| GET | `/sync` | admin | Detect PostgreSQL ↔ ChromaDB desync |
-| POST | `/sync` | admin | Fix desync (`?reindex=true` for full reindex) |
-| GET | `/evaluate` | admin | Run RAGAS evaluation on recent conversations |
-| GET | `/monitoring` | admin | LLM-as-judge results + hallucination flags |
-| GET | `/health` | — | Health check |
+| `POST` | `/auth/login` | — | Login → JWT token |
+| `POST` | `/chat/stream` | user | SSE streaming response |
+| `POST` | `/chat` | user | Blocking response (Slack) |
+| `POST` | `/feedback` | user | Submit thumbs up/down |
+| `GET` | `/sessions` | user | List past conversations |
+| `GET` | `/history/{id}` | user | Fetch conversation messages |
+| `DELETE` | `/history/{id}` | user | Delete a conversation |
+| `POST` | `/ingest` | admin | Upload & index a document |
+| `GET` | `/documents` | user | List indexed documents |
+| `DELETE` | `/documents/{id}` | admin | Remove a document |
+| `GET` | `/sync` | admin | Detect PostgreSQL ↔ ChromaDB drift |
+| `POST` | `/sync` | admin | Fix drift (`?reindex=true` for full re-index) |
+| `GET` | `/evaluate` | admin | Run RAGAS evaluation |
+| `GET` | `/monitoring` | admin | LLM-as-judge results + hallucination flags |
+| `GET` | `/health` | — | Health check |
 
 ---
 
-## Quality monitoring
+## Quality Monitoring
 
 ### LLM-as-judge (automatic)
-Every assistant response is evaluated in the background by Haiku on 3 dimensions:
-- **Helpfulness** (1–5)
-- **Factual consistency** (1–5)
-- **Hallucination** (yes/no)
 
-Results are stored in `llm_judge_results` and surfaced via `GET /monitoring`.
+After every response, Haiku evaluates in the background — no latency added to the user.
+
+| Dimension | Scale |
+|---|---|
+| Helpfulness | 1 – 5 |
+| Factual consistency | 1 – 5 |
+| Hallucination | yes / no |
+
+View results: `GET /monitoring`
 
 ### RAGAS (on-demand)
-Admin calls `GET /evaluate` to compute RAG pipeline metrics on recent conversations:
-- **Faithfulness** — answer grounded in retrieved context?
-- **Answer relevancy** — answer addresses the question?
-- **Context precision** — retrieved chunks relevant?
 
-### User feedback
-Thumbs up / thumbs down buttons appear under every assistant message in the UI.
+Batch evaluation on recent conversations. Call `GET /evaluate` from the admin panel.
 
----
-
-## DB ↔ ChromaDB sync
-
-The `documents` table in PostgreSQL and ChromaDB can fall out of sync (e.g. after a ChromaDB volume reset). Use:
-
-```bash
-make sync           # detect: ghosts / orphans / mismatches
-make sync-fix       # auto-repair without original files
-make sync-reindex   # delete + re-index policy files from disk
-```
-
-Or via API: `GET /sync` (detect) and `POST /sync` (fix).
+| Metric | What it measures |
+|---|---|
+| Faithfulness | Is the answer grounded in retrieved context? |
+| Answer relevancy | Does the answer address the question? |
+| Context precision | Are retrieved chunks relevant? |
 
 ---
 
-## Project structure
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in:
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | **Yes** | — | Anthropic API key |
+| `JWT_SECRET` | No | `change-me-in-production` | JWT signing secret — **change in prod** |
+| `DATABASE_URL` | No | local PostgreSQL | PostgreSQL connection string |
+| `ADMIN_PASSWORD` | No | `admin123` | Admin account password |
+| `EMPLOYEE_PASSWORD` | No | `employee123` | Employee demo password |
+| `SLACK_BOT_TOKEN` | No | — | Bot token (`xoxb-…`) |
+| `SLACK_APP_TOKEN` | No | — | App-level token (`xapp-…`) |
+| `CLAUDE_MODEL` | No | `claude-haiku-4-5-20251001` | Fast model |
+| `CLAUDE_MODEL_SMART` | No | `claude-sonnet-4-6` | Smart model |
+| `EMBEDDING_MODEL` | No | `paraphrase-multilingual-MiniLM-L12-v2` | Local embedding model |
+
+---
+
+## Project Structure
 
 ```
-autoResearchAgent/
+QAChatBox/
 ├── src/
-│   ├── agent.py              # LangGraph StateGraph orchestration
+│   ├── agent.py              # LangGraph orchestration
 │   ├── api.py                # FastAPI endpoints
-│   ├── auth.py               # JWT create/verify, role guards
-│   ├── config.py             # pydantic-settings from .env
-│   ├── database.py           # PostgreSQL schema, CRUD
-│   ├── document_processor.py # PDF/DOCX/TXT → chunks
+│   ├── auth.py               # JWT auth + role guards
+│   ├── config.py             # Settings via pydantic-settings
+│   ├── database.py           # PostgreSQL schema + CRUD
+│   ├── document_processor.py # PDF / DOCX / TXT → chunks
 │   ├── evaluation.py         # RAGAS evaluation
-│   ├── judge.py              # LLM-as-judge (background task)
+│   ├── judge.py              # LLM-as-judge background task
 │   ├── slack_bot.py          # Slack Bolt (Socket Mode)
-│   ├── sync.py               # DB ↔ ChromaDB sync (API wrapper)
+│   ├── sync.py               # DB ↔ ChromaDB sync (API layer)
 │   ├── tools.py              # rag_tool, sql_tool
 │   ├── ui.py                 # Streamlit web UI
 │   └── vector_store.py       # ChromaDB wrapper
 ├── scripts/
-│   ├── chroma_inspect.py     # CLI: inspect ChromaDB contents
-│   ├── seed_data.py          # Idempotent seed (DB + ChromaDB)
-│   └── sync_docs.py          # CLI: detect / fix / reindex sync
+│   ├── seed_data.py          # Idempotent DB + ChromaDB seed
+│   ├── sync_docs.py          # CLI: detect / fix / reindex
+│   └── chroma_inspect.py     # CLI: inspect ChromaDB contents
 ├── tests/
-│   ├── test_tools.py         # Unit tests (offline)
+│   ├── test_tools.py         # Offline unit tests
 │   └── test_agent.py         # Routing tests (requires API key)
 ├── data/
-│   ├── employees.csv
 │   ├── leave_policy.txt
 │   ├── remote_work_policy.txt
 │   ├── code_of_conduct.txt
-│   └── onboarding_guide.txt
+│   ├── onboarding_guide.txt
+│   └── employees.csv
 ├── Makefile
 ├── Dockerfile
 ├── docker-compose.yml
@@ -203,37 +216,17 @@ autoResearchAgent/
 
 ---
 
-## Environment variables
+## Slack Setup
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
-| `DATABASE_URL` | No | `postgresql://kb_user:kb_pass@localhost:5432/kb_db` | PostgreSQL DSN |
-| `JWT_SECRET` | No | `change-me-in-production` | JWT signing secret — **change in prod** |
-| `ADMIN_PASSWORD` | No | `admin123` | Admin account password |
-| `EMPLOYEE_PASSWORD` | No | `employee123` | Employee demo password |
-| `SLACK_BOT_TOKEN` | No | — | Slack Bot Token (starts with `xoxb-`) |
-| `SLACK_APP_TOKEN` | No | — | Slack App Token (starts with `xapp-`) |
-| `CLAUDE_MODEL` | No | `claude-haiku-4-5-20251001` | Fast model (routing, judge) |
-| `CLAUDE_MODEL_SMART` | No | `claude-sonnet-4-6` | Smart model (synthesis, RAGAS) |
-| `EMBEDDING_MODEL` | No | `paraphrase-multilingual-MiniLM-L12-v2` | Sentence-transformers model |
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → From scratch
+2. **Socket Mode** → Enable → generate App-Level Token → set as `SLACK_APP_TOKEN`
+3. **Event Subscriptions** → subscribe to: `message.im`, `app_mention`
+4. **OAuth & Permissions** → Bot Token Scopes: `chat:write`, `im:history`, `app_mentions:read`
+5. **Install App** → copy Bot User OAuth Token → set as `SLACK_BOT_TOKEN`
+6. Restart the app — the Slack bot starts automatically when both tokens are present
 
 ---
 
-## Slack setup
+## License
 
-1. https://api.slack.com/apps → **Create New App** → From scratch
-2. **Socket Mode** → Enable → generate App-Level Token → `SLACK_APP_TOKEN`
-3. **Event Subscriptions** → bot events: `message.im`, `app_mention`
-4. **OAuth & Permissions** → scopes: `chat:write`, `im:history`, `app_mentions:read`
-5. **Install App** → copy Bot Token → `SLACK_BOT_TOKEN`
-6. Restart — Slack bot starts automatically when both tokens are set
-
----
-
-## Running tests
-
-```bash
-make test           # offline (no API key needed)
-make test-all       # full suite (ANTHROPIC_API_KEY required)
-```
+MIT
