@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER:     kb_user
+      POSTGRES_PASSWORD: kb_pass
+      POSTGRES_DB:       kb_db
+    ports:
+      - "5432:5432"   # expose ra host để local dev kết nối được
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kb_user -d kb_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"    # FastAPI  → http://localhost:8000/docs
+      - "8501:8501"    # Streamlit → http://localhost:8501
+    volumes:
+      - chroma_data:/app/data/chroma_db   # ChromaDB vectors persist
+      - ./data:/app/data                  # CSV + policy docs available for seeding
+      - ./src:/app/src                    # DEV: mount source code — changes apply without rebuild
+    environment:
+      DATABASE_URL: postgresql://kb_user:kb_pass@db:5432/kb_db
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s   # allow time for model warm-up + seeding (multilingual model ~270 MB)
+      retries: 5
+
+volumes:
+  chroma_data:
+  postgres_data:

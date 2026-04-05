@@ -1,0 +1,18 @@
+# ── Heavy packages — rarely change, cached as a separate Docker layer ──
+# Changing requirements.txt does NOT invalidate this layer.
+# Only update versions here when absolutely necessary.
+
+# LLM & Agent (pulls in many transitive deps)
+anthropic==0.40.0
+langchain==0.3.7
+langchain-anthropic==0.3.0
+langchain-community==0.3.7
+langgraph==0.2.50
+
+# Vector store & embeddings (sentence-transformers pulls torch ~530 MB)
+chromadb==0.5.20
+sentence-transformers==3.3.1
+
+# Document processing
+pypdf==5.1.0
+python-docx==1.1.2

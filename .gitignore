@@ -1,0 +1,92 @@
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ========================
+# Virtual Environment
+# ========================
+.venv/
+venv/
+env/
+.env
+.env.example
+
+
+# Giữ lại file example để team biết cần set những biến gì
+!.env.example
+
+# ========================
+# AI / Vector Store / Data
+# ========================
+data/
+*.faiss
+*.index
+*.pkl
+*.npy
+*.npz
+chroma_db/
+vector_store/
+
+# ========================
+# Docker
+# ========================
+# Không ignore docker-compose.yml & Dockerfile vì cần commit
+# Chỉ ignore override local
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ========================
+# macOS
+# ========================
+.DS_Store
+*/.DS_Store
+
+# ========================
+# IDE / Editor
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ========================
+# Logs & Temp
+# ========================
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# ========================
+# Testing & Coverage
+# ========================
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.coveragerc
+
+# ========================
+# Secrets / Keys
+# ========================
+*.pem
+*.key
+*.cert
+secrets/
+credentials.json
+token.json
