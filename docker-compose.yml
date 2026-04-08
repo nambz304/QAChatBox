@@ -40,6 +40,17 @@ services:
       timeout: 10s
       start_period: 180s   # allow time for model warm-up + seeding (multilingual model ~270 MB)
       retries: 5
+      
+  nginx-proxy:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: unless-stopped
+    ports:
+      - '80:80'   # Cổng web chính
+      - '81:81'   # Cổng quản lý Nginx
+      - '443:443' # Cổng bảo mật HTTPS
+    volumes:
+      - ./nginx_data:/data
+      - ./nginx_letsencrypt:/etc/letsencrypt
 
 volumes:
   chroma_data:
