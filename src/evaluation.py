@@ -4,16 +4,16 @@ RAGAS evaluation module.
 Fetches recent (question, answer, context) samples from conversation_history
 and computes RAG quality metrics: faithfulness, answer_relevancy, context_precision.
 
-Requires:  ragas, datasets, langchain-anthropic (all in requirements.txt)
+Requires:  ragas>=0.2, datasets, langchain-anthropic (all in requirements.txt)
 Called by: GET /evaluate  (admin-only endpoint in api.py)
 """
 import asyncio
 
-from datasets import Dataset
 from loguru import logger
-from ragas import evaluate
+from ragas import EvaluationDataset, SingleTurnSample, evaluate
+from ragas.embeddings import LangchainEmbeddingsWrapper
 from ragas.llms import LangchainLLMWrapper
-from ragas.metrics import answer_relevancy, context_precision, faithfulness
+from ragas.metrics import answer_relevancy, faithfulness
 
 from .config import get_settings
 from .database import get_recent_qa_samples
@@ -33,6 +33,16 @@ def _get_ragas_llm():
     )
 
 
+def _get_ragas_embeddings():
+    """Use local sentence-transformers model — no OpenAI key needed."""
+    from langchain_community.embeddings import SentenceTransformerEmbeddings
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emb = SentenceTransformerEmbeddings(model_name=settings.embedding_model)
+    return LangchainEmbeddingsWrapper(emb)
+
+
 async def run_ragas_evaluation(limit: int = 20) -> dict:
     """
     Run RAGAS evaluation on recent conversations.
@@ -46,41 +56,48 @@ async def run_ragas_evaluation(limit: int = 20) -> dict:
 
     logger.info(f"Running RAGAS evaluation on {len(samples)} samples")
 
-    dataset = Dataset.from_dict({
-        "question": [s["question"] for s in samples],
-        "answer":   [s["answer"] for s in samples],
-        "contexts": [s["contexts"] for s in samples],   # list[list[str]]
-    })
+    # RAGAS 0.2.x API: use EvaluationDataset + SingleTurnSample
+    # Column names: user_input, response, retrieved_contexts
+    eval_samples = [
+        SingleTurnSample(
+            user_input=s["question"],
+            response=s["answer"],
+            retrieved_contexts=s["contexts"],
+        )
+        for s in samples
+    ]
+    dataset = EvaluationDataset(samples=eval_samples)
 
-    # Configure all metrics to use Anthropic instead of OpenAI
+    # Pass LLM directly to evaluate() — not via metric.llm in 0.2.x
     ragas_llm = _get_ragas_llm()
-    metrics = [faithfulness, answer_relevancy, context_precision]
-    for m in metrics:
-        m.llm = ragas_llm
+    ragas_emb = _get_ragas_embeddings()
+    # context_precision requires ground-truth reference answers — not available here
+    metrics = [faithfulness, answer_relevancy]
 
     # ragas.evaluate is synchronous — run in executor to avoid blocking event loop
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(
             None,
-            lambda: evaluate(dataset, metrics=metrics),
+            lambda: evaluate(dataset, metrics=metrics, llm=ragas_llm,
+                             embeddings=ragas_emb),
         )
     except Exception as exc:
         logger.error(f"RAGAS evaluation failed: {exc}")
         raise
 
     def _safe_score(key: str) -> float:
-        val = result.get(key)
-        if val is None:
-            return 0.0
         try:
+            # result._repr_dict holds pre-computed mean scores per metric
+            val = result._repr_dict.get(key)
+            if val is None:
+                return 0.0
             return round(float(val), 4)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
             return 0.0
 
     return {
-        "num_samples":       len(samples),
-        "faithfulness":      _safe_score("faithfulness"),
-        "answer_relevancy":  _safe_score("answer_relevancy"),
-        "context_precision": _safe_score("context_precision"),
+        "num_samples":      len(samples),
+        "faithfulness":     _safe_score("faithfulness"),
+        "answer_relevancy": _safe_score("answer_relevancy"),
     }

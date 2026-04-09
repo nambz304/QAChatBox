@@ -16,7 +16,7 @@ from .database import save_judge_result
 settings = get_settings()
 _async_anthropic = AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-_JUDGE_PROMPT_TEMPLATE = """\
+_JUDGE_PROMPT_RAG = """\
 You are a quality evaluator for an internal HR/company knowledge base chatbot.
 
 User question: {question}
@@ -27,8 +27,29 @@ Evaluate on three dimensions:
 1. Helpfulness (1-5): How useful is this answer for the user's actual need?
    1=completely unhelpful, 3=partially helpful, 5=exactly what was needed
 2. Factual consistency (1-5): How well does the answer match what the cited sources would support?
-   1=contradicts sources or no sources, 3=partially supported, 5=fully supported
+   1=directly contradicts sources, 3=partially supported, 5=fully supported by citations
 3. Hallucination (yes/no): Does the answer contain specific claims NOT supported by the cited sources?
+
+Reply in this EXACT format (no extra text):
+HELPFULNESS: <1-5>
+FACTUAL: <1-5>
+HALLUCINATION: <yes/no>
+RATIONALE: <one sentence explaining the scores>"""
+
+_JUDGE_PROMPT_SQL = """\
+You are a quality evaluator for an internal HR/company knowledge base chatbot.
+
+User question: {question}
+Assistant answer: {answer}
+
+This answer was generated from a LIVE DATABASE QUERY — it contains real employee or company data, not document citations. Do NOT penalize for missing citations.
+
+Evaluate on three dimensions:
+1. Helpfulness (1-5): How useful and complete is this answer for the user's actual need?
+   1=completely unhelpful, 3=partially helpful, 5=exactly what was needed
+2. Factual consistency (1-5): Does the answer directly address the question asked without adding unrelated claims?
+   1=answer is completely off-topic, 3=partially on-topic, 5=directly and accurately answers the question
+3. Hallucination (yes/no): Does the answer make up specific names, numbers, or facts that seem implausible or unrelated to the question?
 
 Reply in this EXACT format (no extra text):
 HELPFULNESS: <1-5>
@@ -43,6 +64,7 @@ async def judge_response(
     question: str,
     answer: str,
     citations: list[str],
+    tool_used: str = "rag",
 ) -> None:
     """
     Evaluate an assistant response asynchronously.
@@ -50,12 +72,18 @@ async def judge_response(
     Errors are logged but never raised.
     """
     try:
-        citations_str = ", ".join(citations) if citations else "none"
-        prompt = _JUDGE_PROMPT_TEMPLATE.format(
-            question=question[:500],
-            answer=answer[:1000],
-            citations=citations_str,
-        )
+        if tool_used == "sql":
+            prompt = _JUDGE_PROMPT_SQL.format(
+                question=question[:500],
+                answer=answer[:1000],
+            )
+        else:
+            citations_str = ", ".join(citations) if citations else "none"
+            prompt = _JUDGE_PROMPT_RAG.format(
+                question=question[:500],
+                answer=answer[:1000],
+                citations=citations_str,
+            )
 
         response = await _async_anthropic.messages.create(
             model=settings.claude_model,   # use fast/cheap model

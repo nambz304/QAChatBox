@@ -23,6 +23,37 @@ _HIDE_TOOLBAR_CSS = """
     [data-testid="stToolbar"]          { display: none; }
     [data-testid="stDecoration"]       { display: none; }
     [data-testid="stStatusWidget"]     { display: none; }
+
+    /* ── Sidebar buttons ── */
+    [data-testid="stSidebar"] .stButton > button {
+        background: #ffffff;
+        border: 1.5px solid #d0d3da;
+        border-radius: 10px;
+        color: #1a1a2e;
+        font-weight: 600;
+        font-size: 0.95rem;
+        padding: 10px 16px;
+        transition: all 0.18s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background: #f0f2ff;
+        border-color: #7c83fd;
+        color: #4a50e0;
+        box-shadow: 0 3px 8px rgba(124,131,253,0.2);
+        transform: translateY(-1px);
+    }
+    /* Sign Out — subtle red tint */
+    [data-testid="stSidebar"] .stButton:last-of-type > button {
+        border-color: #ffc2c2;
+        color: #c0392b;
+    }
+    [data-testid="stSidebar"] .stButton:last-of-type > button:hover {
+        background: #fff0f0;
+        border-color: #e74c3c;
+        color: #c0392b;
+        box-shadow: 0 3px 8px rgba(231,76,60,0.18);
+    }
 </style>
 """
 
@@ -398,6 +429,7 @@ def _render_feedback(key_prefix: str, message_id: int) -> None:
                 })
                 st.session_state[rated_key]  = True
                 st.session_state[rating_key] = rating
+                st.rerun()
             except RuntimeError:
                 pass
 
@@ -466,14 +498,45 @@ def _time_filter_ui(prefix: str = "dash") -> int:
 
 _DASHBOARD_TAB_CSS = """
 <style>
-button[data-baseweb="tab"] {
-    font-size: 1.1rem !important;
-    font-weight: 600 !important;
-    padding: 12px 24px !important;
+/* ── Tab bar container ── */
+[data-baseweb="tab-list"] {
+    background: #f7f8fc !important;
+    border-radius: 12px !important;
+    padding: 4px 6px !important;
+    gap: 4px !important;
+    border: 1px solid #e4e6ef !important;
 }
+
+/* ── Individual tab ── */
+button[data-baseweb="tab"] {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    padding: 10px 22px !important;
+    border-radius: 9px !important;
+    color: #555c7a !important;
+    background: transparent !important;
+    border: none !important;
+    transition: all 0.18s ease !important;
+}
+button[data-baseweb="tab"]:hover {
+    background: #eceeff !important;
+    color: #4a50e0 !important;
+}
+
+/* ── Active tab ── */
 button[data-baseweb="tab"][aria-selected="true"] {
+    background: #ffffff !important;
     color: #ff4b4b !important;
-    border-bottom: 3px solid #ff4b4b !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.10) !important;
+    border-bottom: none !important;
+}
+
+/* Hide the default sliding underline */
+[data-baseweb="tab-highlight"] {
+    display: none !important;
+}
+[data-baseweb="tab-border"] {
+    display: none !important;
 }
 </style>
 """
@@ -601,12 +664,10 @@ def _page_dashboard() -> None:
 
             faith = ragas.get("faithfulness", 0)
             relev = ragas.get("answer_relevancy", 0)
-            prec  = ragas.get("context_precision", 0)
 
             for label, score in [
                 ("Faithfulness", faith),
                 ("Answer Relevancy", relev),
-                ("Context Precision", prec),
             ]:
                 col_lbl, col_score, col_bar = st.columns([2, 1, 4])
                 col_lbl.write(label)

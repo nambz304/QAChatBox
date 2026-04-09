@@ -236,6 +236,7 @@ async def chat(
                     judge_response,
                     req.session_id, msg_id, req.message,
                     result["answer"], result["citations"],
+                    result.get("tool_used", "rag"),
                 )
 
         return ChatResponse(
@@ -285,7 +286,16 @@ async def chat_stream(
                 yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
         except Exception as exc:
             logger.error(f"Stream error for session '{req.session_id}': {exc}")
-            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            err_str = str(exc)
+            if "overloaded_error" in err_str or "overloaded" in err_str.lower():
+                friendly = "Anthropic API đang quá tải, vui lòng thử lại sau vài giây."
+            elif "rate_limit" in err_str or "rate limit" in err_str.lower():
+                friendly = "Đã vượt giới hạn request, vui lòng chờ một chút rồi thử lại."
+            elif "authentication" in err_str.lower() or "api_key" in err_str.lower():
+                friendly = "Lỗi xác thực API key. Vui lòng liên hệ admin."
+            else:
+                friendly = err_str
+            yield f"data: {json.dumps({'error': friendly})}\n\n"
 
     async def _judge_after() -> None:
         if result_capture.get("needs_clarification"):
@@ -297,6 +307,7 @@ async def chat_stream(
                 req.session_id, msg_id, req.message,
                 result_capture.get("answer", ""),
                 result_capture.get("citations", []),
+                result_capture.get("tool_used", "rag"),
             )
 
     background_tasks.add_task(_judge_after)
