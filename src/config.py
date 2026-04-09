@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     slack_app_token: str = ""
     api_base_url: str = "http://localhost:8000"
 
+    # ── Pricing ($/1M tokens) — configurable via .env ──────────
+    haiku_input_cost_per_1m:  float = 0.80
+    haiku_output_cost_per_1m: float = 4.00
+    sonnet_input_cost_per_1m: float = 3.00
+    sonnet_output_cost_per_1m: float = 15.00
+    usd_to_vnd_rate:           float = 25400.0
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

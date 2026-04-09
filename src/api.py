@@ -20,8 +20,10 @@ Rate limits (per user):
   /chat, /chat/stream  — 20 requests / minute
   /ingest              — 10 requests / hour
 """
+import asyncio
 import json
 from pathlib import Path
+from typing import Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,14 +40,23 @@ from .config import get_settings
 from .database import (
     delete_document_record,
     delete_history,
+    get_dashboard_kpis,
+    get_feedback_stats,
     get_feedback_summary,
+    get_feedback_with_comments,
     get_full_history,
+    get_judge_summary,
+    get_latency_trend,
+    get_monitoring_cache,
     get_recent_judge_results,
+    get_recent_logs,
+    get_tool_usage_breakdown,
     init_db,
     list_documents,
     list_user_sessions,
     save_document_record,
     save_feedback,
+    set_monitoring_cache,
     verify_user,
 )
 from .document_processor import process_file
@@ -95,12 +106,26 @@ def root():
 
 # ── Startup ───────────────────────────────────────────────────
 
+async def _ragas_scheduler() -> None:
+    """Background task: auto-run RAGAS evaluation every 6 hours and cache result."""
+    while True:
+        await asyncio.sleep(6 * 3600)
+        try:
+            from .evaluation import run_ragas_evaluation
+            result = await run_ragas_evaluation(limit=20)
+            set_monitoring_cache("ragas_latest", result)
+            logger.info("RAGAS auto-evaluation completed and cached")
+        except Exception as exc:
+            logger.error(f"RAGAS scheduler error: {exc}")
+
+
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     init_db()
     get_vector_store()   # warm-up: loads sentence-transformers model into memory
     if settings.jwt_secret == "change-me-in-production":
         logger.warning("JWT_SECRET is using the default placeholder — set a strong secret in .env")
+    asyncio.create_task(_ragas_scheduler())
     logger.info("API ready")
 
 
@@ -160,6 +185,7 @@ class FeedbackRequest(BaseModel):
     session_id: str
     message_id: int
     rating: int
+    comment: Optional[str] = None
 
     @field_validator("rating")
     @classmethod
@@ -363,7 +389,7 @@ def clear_history(session_id: str, token: dict = Depends(require_auth)):
 
 @app.post("/feedback")
 async def feedback(req: FeedbackRequest, token: dict = Depends(require_auth)):
-    save_feedback(req.session_id, req.message_id, req.rating)
+    save_feedback(req.session_id, req.message_id, req.rating, req.comment)
     return {"status": "ok"}
 
 
@@ -374,7 +400,9 @@ async def evaluate_endpoint(limit: int = 20, token: dict = Depends(require_admin
     """Run RAGAS metrics on recent conversations. Slow — call manually from admin panel."""
     from .evaluation import run_ragas_evaluation
     try:
-        return await run_ragas_evaluation(limit=limit)
+        result = await run_ragas_evaluation(limit=limit)
+        set_monitoring_cache("ragas_latest", result)
+        return result
     except Exception as exc:
         logger.error(f"Evaluation error: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -397,6 +425,86 @@ def monitoring(limit: int = 50, token: dict = Depends(require_admin)):
         "recent_results":   results[:20],
         "flagged_details":  flagged[:10],
     }
+
+
+# ── Dashboard — admin only ───────────────────────────────────
+
+def _compute_cost(total_input_tokens: int, total_output_tokens: int,
+                  total_requests: int) -> dict:
+    """
+    Estimate cost from stored synthesis tokens (Sonnet) plus fixed overhead
+    per request for routing + judge (Haiku: ~100 input + 5 out routing,
+    ~300 input + 50 out judge).
+    """
+    s = get_settings()
+    # Sonnet (synthesis)
+    sonnet_cost = (
+        total_input_tokens  * s.sonnet_input_cost_per_1m / 1_000_000
+        + total_output_tokens * s.sonnet_output_cost_per_1m / 1_000_000
+    )
+    # Haiku overhead per request (routing + judge, fixed estimate)
+    haiku_input_fixed  = 400   # ~100 routing + ~300 judge
+    haiku_output_fixed = 55    # ~5 routing + ~50 judge
+    haiku_cost = total_requests * (
+        haiku_input_fixed  * s.haiku_input_cost_per_1m / 1_000_000
+        + haiku_output_fixed * s.haiku_output_cost_per_1m / 1_000_000
+    )
+    total_usd = sonnet_cost + haiku_cost
+    avg_usd   = total_usd / total_requests if total_requests else 0.0
+    return {
+        "avg_cost_usd":   round(avg_usd, 6),
+        "avg_cost_vnd":   round(avg_usd * s.usd_to_vnd_rate),
+        "total_cost_usd": round(total_usd, 4),
+        "total_cost_vnd": round(total_usd * s.usd_to_vnd_rate),
+    }
+
+
+@app.get("/monitoring/dashboard")
+def dashboard(days: int = 7, token: dict = Depends(require_admin)):
+    """
+    Comprehensive dashboard data for the admin monitoring page.
+    Query param: days — number of days to look back (default 7).
+    """
+    kpis          = get_dashboard_kpis(days)
+    latency_trend = get_latency_trend(days)
+    tool_breakdown = get_tool_usage_breakdown(days)
+    judge_summary  = get_judge_summary(days)
+    feedback_stats = get_feedback_stats(days)
+    ragas_cache    = get_monitoring_cache("ragas_latest")
+
+    cost = _compute_cost(
+        kpis["total_input_tokens"],
+        kpis["total_output_tokens"],
+        kpis["total_requests"],
+    )
+
+    return {
+        "kpis": {
+            **kpis,
+            **cost,
+        },
+        "latency_trend":   latency_trend,
+        "tool_breakdown":  tool_breakdown,
+        "judge_summary":   judge_summary,
+        "feedback_by_tool": feedback_stats.get("by_tool", {}),
+        "ragas_cache":     ragas_cache,
+        "days":            days,
+    }
+
+
+@app.get("/monitoring/feedback_comments")
+def feedback_comments(days: int = 7, token: dict = Depends(require_admin)):
+    return get_feedback_with_comments(days)
+
+
+@app.get("/monitoring/logs")
+def monitoring_logs(
+    days: int = 7,
+    tool: Optional[str] = None,
+    rating: Optional[int] = None,
+    token: dict = Depends(require_admin),
+):
+    return get_recent_logs(days=days, tool=tool, rating=rating)
 
 
 # ── Sync (DB ↔ ChromaDB) — admin only ────────────────────────

@@ -12,7 +12,8 @@ Two public interfaces:
   run_agent()    — blocking, used by Slack bot
   stream_agent() — generator, yields tokens then metadata dict; used by SSE endpoint
 """
-from typing import Generator, Literal, TypedDict
+import time
+from typing import Generator, Literal, Optional, TypedDict
 
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -39,6 +40,8 @@ class AgentState(TypedDict):
     role: str                # "admin" | "employee"
     needs_clarification: bool
     clarification_question: str
+    input_tokens: Optional[int]   # synthesis call token usage
+    output_tokens: Optional[int]
 
 
 # ── LLMs ──────────────────────────────────────────────────────
@@ -146,10 +149,20 @@ def synthesize(state: AgentState) -> AgentState:
     If clarification is needed, return the clarifying question directly.
     """
     if state.get("needs_clarification"):
-        return {**state, "final_answer": state["clarification_question"]}
+        return {**state, "final_answer": state["clarification_question"],
+                "input_tokens": None, "output_tokens": None}
     messages = _build_synthesis_messages(state)
     response = _llm_smart.invoke(messages)
-    return {**state, "final_answer": response.content}
+    # Extract token usage from response metadata (LangChain Anthropic)
+    usage = getattr(response, "usage_metadata", None) or {}
+    if not usage:
+        usage = (response.response_metadata or {}).get("usage", {})
+    return {
+        **state,
+        "final_answer":  response.content,
+        "input_tokens":  usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+    }
 
 
 # ── Shared helper ─────────────────────────────────────────────
@@ -251,9 +264,13 @@ def run_agent(user_query: str, session_id: str,
         role=role,
         needs_clarification=False,
         clarification_question="",
+        input_tokens=None,
+        output_tokens=None,
     )
 
+    start = time.time()
     result = _get_graph().invoke(initial_state)
+    response_time_ms = int((time.time() - start) * 1000)
 
     save_message(session_id, "user", user_query)
     msg_id = save_message(
@@ -263,6 +280,9 @@ def run_agent(user_query: str, session_id: str,
         citations=result["citations"],
         tool_used=result["tool_name"],
         context_used=result["tool_output"],
+        response_time_ms=response_time_ms,
+        input_tokens=result.get("input_tokens"),
+        output_tokens=result.get("output_tokens"),
     )
 
     return {
@@ -304,7 +324,11 @@ def stream_agent(
         role=role,
         needs_clarification=False,
         clarification_question="",
+        input_tokens=None,
+        output_tokens=None,
     )
+
+    start = time.time()
 
     # Step 1 & 2: routing + tool execution (fast, ~1-2 s, no streaming needed)
     state = _run_routing_and_tools(state)
@@ -312,12 +336,23 @@ def stream_agent(
     # Step 3: stream synthesis token-by-token
     messages = _build_synthesis_messages(state)
     full_answer = ""
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
 
     for chunk in _llm_smart.stream(messages):
         token = chunk.content
         if token:
             full_answer += token
             yield token
+        # Capture token usage from the last chunk's metadata
+        usage = getattr(chunk, "usage_metadata", None) or {}
+        if not usage:
+            usage = (getattr(chunk, "response_metadata", None) or {}).get("usage", {})
+        if usage:
+            input_tokens = usage.get("input_tokens", input_tokens)
+            output_tokens = usage.get("output_tokens", output_tokens)
+
+    response_time_ms = int((time.time() - start) * 1000)
 
     # Persist after full answer is assembled
     save_message(session_id, "user", user_query)
@@ -328,6 +363,9 @@ def stream_agent(
         citations=state["citations"],
         tool_used=state["tool_name"],
         context_used=state["tool_output"],
+        response_time_ms=response_time_ms,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
     # Final metadata item — signals stream is done

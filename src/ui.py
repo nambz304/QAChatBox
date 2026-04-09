@@ -1,12 +1,14 @@
 """
-Streamlit web UI — three pages:
-  login  : username/password form
-  chat   : main chat + conversation history sidebar
-  admin  : document upload & management (admin role only)
+Streamlit web UI — four pages:
+  login     : username/password form
+  chat      : main chat + conversation history sidebar
+  admin     : document upload & management (admin role only)
+  dashboard : monitoring dashboard for admins
 """
 import json
 import os
 import uuid
+from datetime import date, timedelta
 
 import httpx
 import streamlit as st
@@ -38,19 +40,20 @@ def _headers() -> dict:
     return headers
 
 
-def _api(method: str, path: str, **kwargs):
+def _api(method: str, path: str, timeout: int = 45, **kwargs):
     url = f"{_API_BASE}{path}"
     try:
-        # Always disable SSL verification for localhost development
-        # Merge user kwargs with defaults to allow override
-        request_kwargs = {"verify": False, "timeout": 45}
+        request_kwargs = {"verify": False, "timeout": timeout}
         request_kwargs.update(kwargs)
-        
+
         r = httpx.request(method, url, headers=_headers(), **request_kwargs)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as exc:
-        detail = exc.response.json().get("detail", str(exc))
+        try:
+            detail = exc.response.json().get("detail", str(exc))
+        except Exception:
+            detail = f"HTTP {exc.response.status_code}: {exc.response.text[:200] or str(exc)}"
         raise RuntimeError(detail) from exc
     except httpx.RequestError as exc:
         # Provide more detailed error info for debugging
@@ -231,6 +234,9 @@ def _page_chat() -> None:
             if st.button("📁 Admin Panel", use_container_width=True):
                 st.session_state.page = "admin"
                 st.rerun()
+            if st.button("📊 Dashboard", use_container_width=True):
+                st.session_state.page = "dashboard"
+                st.rerun()
 
         if st.button("Sign Out", use_container_width=True):
             _logout()
@@ -253,26 +259,8 @@ def _page_chat() -> None:
                         st.caption(f"• {src}")
             # Feedback buttons for assistant messages
             if msg["role"] == "assistant" and not msg.get("needs_clarification"):
-                fb_col1, fb_col2, _ = st.columns([1, 1, 10])
                 msg_id = msg.get("id", idx)
-                if fb_col1.button("👍", key=f"up_{idx}", help="Helpful"):
-                    try:
-                        _api("POST", "/feedback", json={
-                            "session_id": st.session_state.session_id,
-                            "message_id": msg_id,
-                            "rating":     1,
-                        })
-                    except RuntimeError:
-                        pass
-                if fb_col2.button("👎", key=f"down_{idx}", help="Not helpful"):
-                    try:
-                        _api("POST", "/feedback", json={
-                            "session_id": st.session_state.session_id,
-                            "message_id": msg_id,
-                            "rating":     -1,
-                        })
-                    except RuntimeError:
-                        pass
+                _render_feedback(f"hist_{idx}", msg_id)
 
     # Chat input
     if user_input := st.chat_input("Ask about policies, employees, or anything…"):
@@ -364,25 +352,7 @@ def _page_chat() -> None:
 
                 # Feedback buttons for the freshly received message
                 if not needs_clarification and message_id:
-                    fb_col1, fb_col2, _ = st.columns([1, 1, 10])
-                    if fb_col1.button("👍", key=f"up_live_{message_id}", help="Helpful"):
-                        try:
-                            _api("POST", "/feedback", json={
-                                "session_id": st.session_state.session_id,
-                                "message_id": message_id,
-                                "rating":     1,
-                            })
-                        except RuntimeError:
-                            pass
-                    if fb_col2.button("👎", key=f"down_live_{message_id}", help="Not helpful"):
-                        try:
-                            _api("POST", "/feedback", json={
-                                "session_id": st.session_state.session_id,
-                                "message_id": message_id,
-                                "rating":     -1,
-                            })
-                        except RuntimeError:
-                            pass
+                    _render_feedback(f"live_{message_id}", message_id)
 
                 st.session_state.messages.append({
                     "role":                "assistant",
@@ -402,14 +372,385 @@ def _page_chat() -> None:
                 })
 
 
+# ── Feedback helper ───────────────────────────────────────────
+
+def _render_feedback(key_prefix: str, message_id: int) -> None:
+    """
+    Render 👍/👎 buttons. Rating is saved immediately on click.
+    An optional comment input appears after rating is given (same rerun — 1 click).
+    """
+    rated_key  = f"fb_rated_{key_prefix}"
+    rating_key = f"fb_rating_{key_prefix}"
+
+    # Show buttons only if not yet rated
+    if not st.session_state.get(rated_key):
+        fb_col1, fb_col2, _ = st.columns([1, 1, 10])
+        clicked_up   = fb_col1.button("👍", key=f"up_{key_prefix}",   help="Helpful")
+        clicked_down = fb_col2.button("👎", key=f"down_{key_prefix}", help="Not helpful")
+
+        if clicked_up or clicked_down:
+            rating = 1 if clicked_up else -1
+            try:
+                _api("POST", "/feedback", json={
+                    "session_id": st.session_state.session_id,
+                    "message_id": message_id,
+                    "rating":     rating,
+                })
+                st.session_state[rated_key]  = True
+                st.session_state[rating_key] = rating
+            except RuntimeError:
+                pass
+
+    # Separate if (not else) — runs immediately after rating is set in the same rerun
+    if st.session_state.get(rated_key):
+        icon = "👍" if st.session_state.get(rating_key) == 1 else "👎"
+        st.caption(f"{icon} Cảm ơn phản hồi!")
+        submitted_key = f"fb_comment_sent_{key_prefix}"
+        if not st.session_state.get(submitted_key):
+            with st.form(key=f"comment_form_{key_prefix}"):
+                comment = st.text_input(
+                    "Thêm ghi chú (tùy chọn)",
+                    placeholder="Nhập ghi chú...",
+                    label_visibility="collapsed",
+                )
+                col_sub, col_skip = st.columns([1, 1])
+                submitted = col_sub.form_submit_button("Gửi")
+                skipped   = col_skip.form_submit_button("Bỏ qua")
+            if submitted and comment.strip():
+                try:
+                    _api("POST", "/feedback", json={
+                        "session_id": st.session_state.session_id,
+                        "message_id": message_id,
+                        "rating":     st.session_state.get(rating_key, 1),
+                        "comment":    comment.strip(),
+                    })
+                except RuntimeError:
+                    pass
+                st.session_state[submitted_key] = True
+                st.rerun()
+            if skipped:
+                st.session_state[submitted_key] = True
+                st.rerun()
+
+
+# ── Page: dashboard ───────────────────────────────────────────
+
+def _time_filter_ui(prefix: str = "dash") -> int:
+    """Render time range selector; return number of days selected."""
+    options = {"1 ngày": 1, "3 ngày": 3, "7 ngày": 7, "30 ngày": 30, "Tuỳ chọn 📅": -1}
+    col_btns = st.columns(len(options))
+    sel_key = f"{prefix}_days_label"
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = "7 ngày"
+
+    for i, (label, val) in enumerate(options.items()):
+        if col_btns[i].button(
+            label,
+            key=f"{prefix}_tf_{label}",
+            type="primary" if st.session_state[sel_key] == label else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state[sel_key] = label
+            st.rerun()
+
+    selected = st.session_state[sel_key]
+    if selected == "Tuỳ chọn 📅":
+        col_from, col_to = st.columns(2)
+        from_date = col_from.date_input("Từ ngày", value=date.today() - timedelta(days=7),
+                                         key=f"{prefix}_from")
+        to_date   = col_to.date_input("Đến ngày", value=date.today(), key=f"{prefix}_to")
+        return max(1, (to_date - from_date).days + 1)
+
+    return options.get(selected, 7)
+
+
+_DASHBOARD_TAB_CSS = """
+<style>
+button[data-baseweb="tab"] {
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    padding: 12px 24px !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: #ff4b4b !important;
+    border-bottom: 3px solid #ff4b4b !important;
+}
+</style>
+"""
+
+
+def _page_dashboard() -> None:
+    st.markdown(_HIDE_TOOLBAR_CSS, unsafe_allow_html=True)
+    st.markdown(_DASHBOARD_TAB_CSS, unsafe_allow_html=True)
+
+    with st.sidebar:
+        if st.button("← Quay lại Chat", use_container_width=True):
+            st.session_state.page = "chat"
+            st.rerun()
+        if st.button("📁 Admin Panel", use_container_width=True):
+            st.session_state.page = "admin"
+            st.rerun()
+        st.divider()
+        if st.button("Sign Out", use_container_width=True):
+            _logout()
+
+    st.title("📊 Monitoring Dashboard")
+
+    # ── Time filter ───────────────────────────────────────────
+    days = _time_filter_ui("dash")
+    st.divider()
+
+    # ── Fetch dashboard data ──────────────────────────────────
+    try:
+        data = _api("GET", "/monitoring/dashboard", params={"days": days})
+    except RuntimeError as exc:
+        st.error(f"Không thể tải dữ liệu dashboard: {exc}")
+        return
+
+    kpis           = data.get("kpis", {})
+    latency_trend  = data.get("latency_trend", [])
+    tool_breakdown = data.get("tool_breakdown", {})
+    judge          = data.get("judge_summary", {})
+    fb_by_tool     = data.get("feedback_by_tool", {})
+    ragas          = data.get("ragas_cache") or {}
+
+    # ── 4 Tabs ────────────────────────────────────────────────
+    tab_perf, tab_quality, tab_feedback, tab_logs = st.tabs(
+        ["⚡ Performance", "🎯 Quality", "👍 Feedback", "📋 Logs"]
+    )
+
+    # ════════════════════════════════════════════════════════
+    # Tab 1 — Performance
+    # ════════════════════════════════════════════════════════
+    with tab_perf:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            avg_lat = kpis.get("avg_latency_ms", 0)
+            st.metric("Avg Latency", f"{avg_lat:,} ms",
+                      help="Thời gian phản hồi trung bình từ lúc gửi câu hỏi đến khi nhận câu trả lời")
+            st.caption(f"Tổng: **{kpis.get('total_requests', 0):,}** requests")
+        with c2:
+            avg_in  = kpis.get("avg_input_tokens", 0)
+            avg_out = kpis.get("avg_output_tokens", 0)
+            st.metric("Avg Tokens / request", f"{avg_in} in / {avg_out} out",
+                      help="Số token trung bình mỗi request (Input = ngữ cảnh + câu hỏi; Output = câu trả lời được sinh ra)")
+        with c3:
+            avg_usd = kpis.get("avg_cost_usd", 0)
+            avg_vnd = kpis.get("avg_cost_vnd", 0)
+            total_usd = kpis.get("total_cost_usd", 0)
+            total_vnd = kpis.get("total_cost_vnd", 0)
+            st.metric(
+                "Avg Cost / request ⓘ",
+                f"${avg_usd:.5f}",
+                help="Chi phí ước tính mỗi request, tính từ tokens × giá model Haiku/Sonnet. "
+                     "Bao gồm: synthesis (Sonnet) + routing + judge (Haiku).",
+            )
+            st.caption(f"≈ {avg_vnd:,.0f} VND  |  Tổng: ${total_usd:.4f} ≈ {total_vnd:,.0f} VND")
+
+        st.divider()
+
+        if latency_trend:
+            import pandas as pd
+            df_lat = pd.DataFrame(latency_trend).set_index("date")
+            st.subheader("Latency theo ngày (ms)")
+            st.line_chart(df_lat[["avg_ms"]], height=220)
+        else:
+            st.info("Chưa có đủ dữ liệu latency — gửi một vài tin nhắn trước.")
+
+        st.divider()
+        rag_cnt = tool_breakdown.get("rag", 0)
+        sql_cnt = tool_breakdown.get("sql", 0)
+        total_tool = rag_cnt + sql_cnt or 1
+        st.subheader("Tool Usage")
+        col_r, col_s = st.columns(2)
+        col_r.metric("RAG", f"{rag_cnt:,}", f"{rag_cnt/total_tool*100:.0f}%")
+        col_s.metric("SQL", f"{sql_cnt:,}", f"{sql_cnt/total_tool*100:.0f}%")
+
+    # ════════════════════════════════════════════════════════
+    # Tab 2 — Quality
+    # ════════════════════════════════════════════════════════
+    with tab_quality:
+        q1, q2, q3 = st.columns(3)
+        avg_help = judge.get("avg_helpfulness", 0.0)
+        avg_fact = judge.get("avg_factual", 0.0)
+        hall_pct = judge.get("hallucination_pct", 0.0)
+        q1.metric("Helpfulness", f"{avg_help:.1f} / 5",
+                  help="Điểm mức độ hữu ích (1-5) do LLM judge chấm sau mỗi câu trả lời")
+        q2.metric("Factual Score", f"{avg_fact:.1f} / 5",
+                  help="Điểm độ chính xác thực tế (1-5) do LLM judge chấm")
+        q3.metric("Hallucination", f"{hall_pct:.1f}% / 100%",
+                  delta=None if hall_pct == 0 else f"{judge.get('flagged_count',0)} flagged",
+                  delta_color="inverse",
+                  help="Tỷ lệ câu trả lời bị phát hiện có sự ảo giác thông tin (bịa đặt)")
+
+        st.divider()
+        st.subheader("RAGAS Evaluation")
+
+        if ragas:
+            cached_at = ragas.get("_cached_at", "")[:16].replace("T", " ")
+            col_info, col_btn = st.columns([3, 1])
+            col_info.caption(f"Last run: {cached_at} (tự động mỗi 6 tiếng)")
+            if col_btn.button("▶ Run Evaluation", type="primary"):
+                with st.spinner("Đang chạy RAGAS evaluation..."):
+                    try:
+                        result = _api("GET", "/evaluate", timeout=120, params={"limit": 20})
+                        st.success("Evaluation hoàn thành!")
+                        st.rerun()
+                    except RuntimeError as exc:
+                        st.error(str(exc))
+
+            faith = ragas.get("faithfulness", 0)
+            relev = ragas.get("answer_relevancy", 0)
+            prec  = ragas.get("context_precision", 0)
+
+            for label, score in [
+                ("Faithfulness", faith),
+                ("Answer Relevancy", relev),
+                ("Context Precision", prec),
+            ]:
+                col_lbl, col_score, col_bar = st.columns([2, 1, 4])
+                col_lbl.write(label)
+                col_score.write(f"**{score:.2f} / 1**")
+                col_bar.progress(float(score))
+        else:
+            st.info("Chưa có kết quả RAGAS. Bấm nút bên dưới để chạy lần đầu.")
+            if st.button("▶ Run Evaluation Now", type="primary"):
+                with st.spinner("Đang chạy RAGAS evaluation..."):
+                    try:
+                        _api("GET", "/evaluate", timeout=120, params={"limit": 20})
+                        st.success("Hoàn thành! Dashboard sẽ cập nhật tự động.")
+                        st.rerun()
+                    except RuntimeError as exc:
+                        st.error(str(exc))
+
+        flagged = judge.get("flagged_responses", [])
+        if flagged:
+            st.divider()
+            st.warning(f"⚠ {judge.get('flagged_count', 0)} responses bị flag hallucination")
+            rows = [{"Msg ID":   r["message_id"],
+                     "Câu hỏi":  (r.get("question") or "—")[:80],
+                     "Lý do":    (r.get("judge_rationale") or "—")[:120]}
+                    for r in flagged[:10]]
+            import pandas as pd
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # ════════════════════════════════════════════════════════
+    # Tab 3 — Feedback
+    # ════════════════════════════════════════════════════════
+    with tab_feedback:
+        pos_pct = kpis.get("positive_feedback_pct", 0.0)
+        total_fb = kpis.get("total_feedback", 0)
+        pos_count = round(pos_pct / 100 * total_fb)
+        neg_count = total_fb - pos_count
+
+        fb1, fb2, fb3 = st.columns(3)
+        fb1.metric("Positive Rate", f"{pos_pct:.1f}%")
+        fb2.metric("👍 Like", f"{pos_count:,}")
+        fb3.metric("👎 Dislike", f"{neg_count:,}")
+        st.progress(pos_pct / 100)
+
+        st.divider()
+        st.subheader("Breakdown by Tool")
+        for tool_name in ("rag", "sql"):
+            info = fb_by_tool.get(tool_name, {})
+            pct  = info.get("positive_pct", 0.0)
+            tot  = info.get("total", 0)
+            col_t, col_p, col_bar = st.columns([1, 1, 4])
+            col_t.write(tool_name.upper())
+            col_p.write(f"**{pct:.0f}%** ({tot})")
+            col_bar.progress(pct / 100)
+
+        st.divider()
+        st.subheader("Recent Feedback")
+
+        # Separate time filter for feedback table
+        fb_days = _time_filter_ui("fb")
+
+        try:
+            feedback_data = _api("GET", "/monitoring/feedback_comments",
+                                 params={"days": fb_days})
+        except RuntimeError:
+            feedback_data = []
+
+        if feedback_data:
+            import pandas as pd
+            rows_display = []
+            for r in feedback_data:
+                rows_display.append({
+                    "Time": str(r.get("created_at", ""))[:16].replace("T", " "),
+                    "Câu hỏi": (r.get("question") or "")[:60],
+                    "Rating": "👍" if r.get("rating") == 1 else "👎",
+                    "Comment": r.get("comment") or "—",
+                })
+            st.dataframe(pd.DataFrame(rows_display), use_container_width=True, hide_index=True)
+        else:
+            st.info("Chưa có feedback trong khoảng thời gian này.")
+
+    # ════════════════════════════════════════════════════════
+    # Tab 4 — Logs
+    # ════════════════════════════════════════════════════════
+    with tab_logs:
+        log_col1, log_col2 = st.columns(2)
+        tool_filter   = log_col1.selectbox("Tool", ["Tất cả", "RAG", "SQL"],
+                                            key="log_tool_filter")
+        rating_filter = log_col2.selectbox("Rating", ["Tất cả", "👍 Like", "👎 Dislike"],
+                                            key="log_rating_filter")
+
+        log_days = _time_filter_ui("logs")
+
+        tool_param   = None if tool_filter == "Tất cả" else tool_filter.lower()
+        rating_param = None
+        if rating_filter == "👍 Like":
+            rating_param = 1
+        elif rating_filter == "👎 Dislike":
+            rating_param = -1
+
+        try:
+            params: dict = {"days": log_days}
+            if tool_param:
+                params["tool"] = tool_param
+            if rating_param is not None:
+                params["rating"] = rating_param
+            logs = _api("GET", "/monitoring/logs", params=params)
+        except RuntimeError as exc:
+            st.error(str(exc))
+            logs = []
+
+        if logs:
+            import pandas as pd
+            rows_log = []
+            for r in logs:
+                lat = r.get("response_time_ms")
+                lat_str = f"{lat:,} ms" if lat else "—"
+                help_score = r.get("helpfulness")
+                fact_score = r.get("factual_score")
+                judge_str = f"{help_score}/5" if help_score else "—"
+                rat = r.get("rating")
+                fb_str = "👍" if rat == 1 else ("👎" if rat == -1 else "—")
+                rows_log.append({
+                    "Time":    str(r.get("created_at", ""))[:16].replace("T", " "),
+                    "Tool":    (r.get("tool_used") or "").upper(),
+                    "Câu hỏi": (r.get("question") or "")[:60],
+                    "Latency": lat_str,
+                    "Judge":   judge_str,
+                    "Feedback": fb_str,
+                })
+            st.dataframe(pd.DataFrame(rows_log), use_container_width=True, hide_index=True)
+        else:
+            st.info("Không có dữ liệu trong khoảng thời gian này.")
+
+
 # ── Page: admin ───────────────────────────────────────────────
 
 def _page_admin() -> None:
     st.markdown(_HIDE_TOOLBAR_CSS, unsafe_allow_html=True)
 
     with st.sidebar:
-        if st.button("← Back to Chat", use_container_width=True):
+        if st.button("← Quay lại Chat", use_container_width=True):
             st.session_state.page = "chat"
+            st.rerun()
+        if st.button("📊 Dashboard", use_container_width=True):
+            st.session_state.page = "dashboard"
             st.rerun()
         st.divider()
         if st.button("Sign Out", use_container_width=True):
@@ -495,6 +836,8 @@ def main() -> None:
     page = st.session_state.get("page", "chat")
     if page == "admin" and st.session_state.role == "admin":
         _page_admin()
+    elif page == "dashboard" and st.session_state.role == "admin":
+        _page_dashboard()
     else:
         _page_chat()
 
