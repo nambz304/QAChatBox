@@ -235,3 +235,5 @@ QAChatBox/
 ## License
 
 MIT
+
+### Notes
