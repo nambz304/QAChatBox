@@ -1,6 +1,6 @@
 <div align="center">
 
-# QAChatBox
+# QAChatBox 
 
 **AI-powered internal knowledge base for companies.**  
 Ask questions about HR policies or employee data — in Vietnamese or English — via web UI or Slack.
